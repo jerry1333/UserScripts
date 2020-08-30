@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Allegro Seller Info
 // @namespace    http://malcom.pl/
-// @version      0.1.9
+// @version      0.1.13
 // @description  Show the seller's name and location on the offers lists and summary pages
 // @author       Malcom <me@malcom.pl>
 // @license      The MIT License; http://opensource.org/licenses/MIT
@@ -29,8 +29,8 @@
 				${tagName} > span.seller a { color: #00a790; text-decoration: none; }
 				${tagName} > span.seller a: link { color: #00a790; }
 				${tagName} > span.seller a: visited { color: #006456; }
-				${tagName} > span.location { margin-bottom: 10px; }
 				${tagName} > span.rating { font-weight: bold; }
+				${tagName} > span.location { margin-bottom: 10px; }
 			</style>
 		`);
 
@@ -40,29 +40,40 @@
 
 			for (var node of listNode.getElementsByTagName('article')) {
 
-				var item;
-				for (var i in node) {
-					if (i.startsWith('__reactEventHandlers')) {
-						item = node[i].children.props.item;
-						break;
-					}
-				}
-				if (!item) return;
+				// get react component
+				var item = node[Object.keys(node).find(key => key.startsWith('__reactInternalInstance$'))];
+				if (!item || !item.return || !item.return.stateNode)
+					continue;
+				item = item.return.stateNode;
 
-				node = node.children[0].children[0].children[1].children[0];
+				// get item props
+				if (!item || !item.props || !item.props.item)
+					continue;
+				item = item.props.item;
+
+				// jesli uzytkownik ma za malo ocen to rating nie jest dostepny
+				var rating = item.seller.positiveFeedbackPercent != undefined ? item.seller.positiveFeedbackPercent + '%' : '---';
+
+				node = node.children[0].children[1].children[0];
 				node.style.position = 'relative';
 
 				node.insertAdjacentHTML('beforeend', `
 					<${tagName}>
-						<span class="seller"><a href="${item.seller.userListingUrl}">${item.seller.login}</a></span><span class="rating">${item.seller.positiveFeedbackPercent}%</span>
+						<span class="seller"><a href="${item.seller.userListingUrl}">${item.seller.login}</a></span>
+						<span class="rating">${rating}</span>
 						<span class="location">${item.location.city}</span>
 					</${tagName}>
 				`);
 
-				// jesli jest logo sklepu to przenies je do naszego kontenera,
-				// zeby wyswietlalo sie pod nasza wstawka...
-				if (node.firstElementChild.nodeName != 'H2')
+				// jesli sprzedawca 'brand'-owy to pierwsze dziecko zawiera logo i/lub nazwe sklepu
+				// przenosimy do naszego kontenera, zeby wyswietlalo sie pod nasza wstawka...
+				if (item.seller.brandzone)
 					node.lastElementChild.appendChild(node.firstElementChild);
+
+				// dla ofert z allegro.lokalnie wyswietlana jest lokalizacja
+				// ktora usuwamy, bo nasza przeciez lepsza i bardziej spojna ;)
+				if (item.vendor == 'allegro_lokalnie')
+					node.parentElement.removeChild(node.parentElement.lastChild.previousElementSibling);
 
 			}
 		}
@@ -102,7 +113,6 @@
 				${tagName} {
 					font-size: 13px;
 					line-height: 21px;
-					margin-bottom: 8px;
 					color: #222;
 				}
 				${tagName} span {
@@ -116,7 +126,7 @@
 		function UpdateOffer() {
 
 			// pobierz lokalizacje z Opcji dostawy
-			var node = document.getElementsByName('delivery')[0].nextElementSibling;
+			var node = document.getElementsByName('shippinginfoshow')[0].nextElementSibling;
 
 			var loc;
 			for (var e of node.getElementsByTagName('*')) {
@@ -130,10 +140,8 @@
 			if (!loc) return;
 
 			// wstawiamy nad wierszem z wyszczegolnionymi info o dostawie
-			// dlatego szukamy poprzednika pierwszego dziecka z border
-			node = [...itemNode.children].filter(n => {
-				return n.computedStyleMap().get('border-top-width').value != 0;
-			})[0].previousElementSibling;
+			// dlatego szukamy poprzednika diva zawierajacego pierwsza linie
+			node = itemNode.getElementsByTagName('hr')[0].parentElement.previousElementSibling;
 
 			// zaleznie od aukcji i jej stanu/konfiguracji, rozne komorki w layoucie
 			// sa wypenione roznymi danymi, a ilosc wierszy i dzieci moze byc rozna
